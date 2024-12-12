@@ -2,7 +2,7 @@ import dataclasses
 from enum import auto, Enum
 from typing import List, Tuple
 
-IGNORE_INDEX = -100
+IGNORE_INDEX = -100  # as in videollama2 !!1
 IMAGE_TOKEN_INDEX = -200
 VIDEO_TOKEN_INDEX = -201
 DEFAULT_IMAGE_TOKEN = "<image>"

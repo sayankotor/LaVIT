@@ -171,6 +171,65 @@ class VideoLaVITUnderstandingRunner:
 
         raise ValueError("Unsupported data input format")
 
+    def get_logits(self, samples, num_beams, truct_vqa=False, **kwargs):
+        if isinstance(samples["text_input"], str):
+            samples["text_input"] = [samples["text_input"]]        
+
+        if 'image' in samples or 'video' in samples:
+            if 'image' in samples:
+                visual_inputs = self.process_image(samples['image'], num_beams)
+                DEFAULT_VISUAL_TOKEN = DEFAULT_IMAGE_TOKEN
+                VISUAL_TOKEN_INDEX = IMAGE_TOKEN_INDEX
+            else:
+                visual_inputs = self.process_video(samples['video'], num_beams)
+                DEFAULT_VISUAL_TOKEN = DEFAULT_VIDEO_TOKEN
+                VISUAL_TOKEN_INDEX = VIDEO_TOKEN_INDEX
+
+            #print ("visual_inputs.shape", len(visual_inputs), visual_inputs[0].shape)
+            
+            print ("samples[text_input]", samples["text_input"])
+            text_inputs = [DEFAULT_VISUAL_TOKEN + "\n" + text_input for text_input in samples["text_input"]]
+            #print ("text_inputs.shape", len(text_inputs), text_inputs[0].shape)
+
+        else:
+            DEFAULT_VISUAL_TOKEN = DEFAULT_IMAGE_TOKEN
+            VISUAL_TOKEN_INDEX = IMAGE_TOKEN_INDEX
+            visual_inputs = None
+            text_inputs = [text_input for text_input in samples["text_input"]]
+        
+        # To get the input prompts
+        prompts = []
+        for text_input in text_inputs:
+            conv = default_conversation.copy()
+            conv.append_message(conv.roles[0], text_input)
+            conv.append_message(conv.roles[1], None)
+            prompt = conv.get_prompt()
+            prompts.append(prompt)
+
+        print("prompts", prompts)
+        input_ids = [tokenizer_image_token(prompt, self.tokenizer, VISUAL_TOKEN_INDEX, \
+                DEFAULT_VISUAL_TOKEN, return_tensors='pt') for prompt in prompts]
+
+        print("input_ids:", input_ids)
+        # To pad the token
+        input_ids = torch.nn.utils.rnn.pad_sequence(
+            input_ids,
+            batch_first=True,
+            padding_value=self.tokenizer.pad_token_id,
+        ).to(self.device)
+
+        attention_mask = input_ids.ne(self.tokenizer.pad_token_id)
+
+        # For understanding, supress the token ids > 32000 (Visual Tokens)
+        supress_range = 32000 + self.visual_vocab_size + self.motion_vocab_size + 2
+        suppress_tokens = [x for x in range(32000, supress_range)]
+
+        output = self.model(input_ids = input_ids, attention_mask = attention_mask)
+        print (output.shape)
+        return output
+
+        
+
     @torch.no_grad()
     def __call__(
         self,
@@ -204,6 +263,7 @@ class VideoLaVITUnderstandingRunner:
                 VISUAL_TOKEN_INDEX = VIDEO_TOKEN_INDEX
 
             text_inputs = [DEFAULT_VISUAL_TOKEN + "\n" + text_input for text_input in samples["text_input"]]
+            print ("text_inputs 0", text_inputs)
 
         else:
             DEFAULT_VISUAL_TOKEN = DEFAULT_IMAGE_TOKEN
@@ -215,16 +275,20 @@ class VideoLaVITUnderstandingRunner:
         prompts = []
         for text_input in text_inputs:
             conv = default_conversation.copy()
+            print (conv.messages)
             conv.append_message(conv.roles[0], text_input)
+            print (conv.messages)
             conv.append_message(conv.roles[1], None)
+            print (conv.messages)
             prompt = conv.get_prompt()
+            print ("prompt", prompt)
             prompts.append(prompt)
 
-        # print(prompts)
+        print(prompts)
         input_ids = [tokenizer_image_token(prompt, self.tokenizer, VISUAL_TOKEN_INDEX, \
                 DEFAULT_VISUAL_TOKEN, return_tensors='pt') for prompt in prompts]
 
-        # print("input_ids:", input_ids)
+        print("input_ids:", input_ids)
         # To pad the token
         input_ids = torch.nn.utils.rnn.pad_sequence(
             input_ids,
@@ -263,7 +327,9 @@ class VideoLaVITUnderstandingRunner:
                 stopping_criteria=[stopping_criteria],
             )
 
-        # print("output_ids:", output_ids)
+        print("output_ids for und:", output_ids)
+
+        print("input_ids.shape[1]:", input_ids.shape[1])
 
         input_token_len = input_ids.shape[1]
         n_diff_input_output = (input_ids != output_ids[:, :input_token_len]).sum().item()

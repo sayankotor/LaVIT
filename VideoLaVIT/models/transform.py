@@ -22,7 +22,7 @@ def extract_motions(video_path, raw_file=True, temp_dir=None, fps=6, rescale=Fal
     if raw_file:
         video_name = os.path.split(video_path)[-1].split('.')[0]
         temp_video_path = f'{temp_dir}/{video_name}.mp4'
-        cmd = f'/home/jinyang06/ffmpeg/bin/ffmpeg -threads 8 -loglevel error -y -i {video_path} -filter:v fps={fps} -b:v 8000k -c:v mpeg4 -f rawvideo {temp_video_path}'
+        cmd = f'/home/jovyan/.mlspace/envs/Python310/bin/ffmpeg -threads 8 -loglevel error -y -i {video_path} -filter:v fps={fps} -b:v 8000k -c:v mpeg4 -f rawvideo {temp_video_path}'
         ret = subprocess.run(args=cmd, shell=True, timeout=2000)
         if ret.returncode != 0:
             raise RuntimeError(f"Dump video to {fps} ERROR")
@@ -181,16 +181,17 @@ class LaVITEvalVideoProcessor:
     def __call__(self, video_path, raw_file=True, use_cache=False, temp_dir=None):
         try:
             video_frame_sequences, video_motion_sequences = self.sample_video_clips(video_path, raw_file, temp_dir)
-
+            #print ("done!")
             video_motion_vectors = []
             for clip_motions in video_motion_sequences:
                 clip_motion_vectors = self.motion_transform(clip_motions)
                 video_motion_vectors.append(clip_motion_vectors)
-
+            
             video_motion_vectors = torch.stack(video_motion_vectors)
 
             video_visual_vectors = [self.image_transform(frame) for frame in video_frame_sequences]
             video_visual_vectors = torch.stack(video_visual_vectors)
+            
 
             assert video_visual_vectors.shape[0] == video_motion_vectors.shape[0]
             assert video_motion_vectors.shape[1] == 2
