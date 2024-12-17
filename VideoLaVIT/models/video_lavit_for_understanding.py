@@ -10,7 +10,7 @@ import transformers
 import torch
 import torch.nn as nn
 from torch.cuda.amp import autocast as autocast
-from transformers import LlamaForCausalLM, LlamaTokenizer
+from transformers import LlamaForCausalLM, LlamaTokenizer, AutoTokenizer
 from utils import get_rank, KeywordsStoppingCriteria
 from conversation import default_conversation, DEFAULT_IMAGE_TOKEN, DEFAULT_VIDEO_TOKEN, VIDEO_TOKEN_INDEX, IMAGE_TOKEN_INDEX
 from models.modeling_video_lavit_hf import VideoLaVITLlamaForCausalLM
@@ -58,6 +58,7 @@ class VideoLaVITUnderstandingRunner:
         max_frames=24,
         max_clips=8,
         motion_vocab_size=1026,
+        visualize_frame_selection = False
     ):
         """
         img_size: The input image size, should be 224 * 224
@@ -84,7 +85,8 @@ class VideoLaVITUnderstandingRunner:
         config.tokenizer_padding_side = 'left'
         config.use_cache = True
 
-        self.tokenizer = transformers.LlamaTokenizer.from_pretrained(model_path, use_fast=False, padding_side='left')
+        #self.tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf", use_fast=False, padding_side='left') # need for traning it is possible to apply_chat() to this tokenizer
+        self.tokenizer = transformers.LlamaTokenizer.from_pretrained(model_path, use_fast=False, padding_side='left') #INITIAL
         self.tokenizer.pad_token = self.tokenizer.unk_token
 
         self.model = VideoLaVITLlamaForCausalLM.from_pretrained(model_path, config=config, device_map=device_map,
@@ -105,7 +107,7 @@ class VideoLaVITUnderstandingRunner:
         self.apply_lemmatizer = apply_lemmatizer
         self._lemmatizer = None
         self.image_processer = LaVITImageProcessor(image_size=img_size)
-        self.video_processor = LaVITEvalVideoProcessor(image_size=img_size, num_frames=max_frames, fps=6, max_clips=max_clips,)
+        self.video_processor = LaVITEvalVideoProcessor(image_size=img_size, num_frames=max_frames, fps=6, max_clips=max_clips, visualize_frame_selection=visualize_frame_selection)
 
     @property
     def device(self):
@@ -263,7 +265,6 @@ class VideoLaVITUnderstandingRunner:
                 VISUAL_TOKEN_INDEX = VIDEO_TOKEN_INDEX
 
             text_inputs = [DEFAULT_VISUAL_TOKEN + "\n" + text_input for text_input in samples["text_input"]]
-            print ("text_inputs 0", text_inputs)
 
         else:
             DEFAULT_VISUAL_TOKEN = DEFAULT_IMAGE_TOKEN
@@ -288,7 +289,6 @@ class VideoLaVITUnderstandingRunner:
         input_ids = [tokenizer_image_token(prompt, self.tokenizer, VISUAL_TOKEN_INDEX, \
                 DEFAULT_VISUAL_TOKEN, return_tensors='pt') for prompt in prompts]
 
-        print("input_ids:", input_ids)
         # To pad the token
         input_ids = torch.nn.utils.rnn.pad_sequence(
             input_ids,
@@ -327,9 +327,6 @@ class VideoLaVITUnderstandingRunner:
                 stopping_criteria=[stopping_criteria],
             )
 
-        print("output_ids for und:", output_ids)
-
-        print("input_ids.shape[1]:", input_ids.shape[1])
 
         input_token_len = input_ids.shape[1]
         n_diff_input_output = (input_ids != output_ids[:, :input_token_len]).sum().item()

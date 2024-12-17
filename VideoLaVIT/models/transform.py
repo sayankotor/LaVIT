@@ -16,6 +16,17 @@ from torchvision.transforms.functional import InterpolationMode
 from mvextractor.videocap import VideoCap
 from diffusers.image_processor import VaeImageProcessor
 
+import matplotlib.pyplot as plt
+
+def draw_motion_vectors(frame, motion_vectors):
+    if len(motion_vectors) > 0:
+        num_mvs = np.shape(motion_vectors)[0]
+        for mv in np.split(motion_vectors, num_mvs):
+            start_pt = (mv[0, 3], mv[0, 4])
+            end_pt = (mv[0, 5], mv[0, 6])
+            cv2.arrowedLine(frame, start_pt, end_pt, (0, 0, 255), 1, cv2.LINE_AA, 0, 0.1)
+    return frame
+
 
 def extract_motions(video_path, raw_file=True, temp_dir=None, fps=6, rescale=False):
     # First dump the video into 6-fps clips
@@ -64,6 +75,59 @@ def extract_motions(video_path, raw_file=True, temp_dir=None, fps=6, rescale=Fal
 
     return frames, motions, frame_types
 
+def extract_motions_for_visualization(video_path, raw_file=True, temp_dir=None, fps=6, group=6, rescale=False):
+    # First dump the video into 6-fps clips
+    if raw_file:
+        video_name = os.path.split(video_path)[-1].split('.')[0]
+        temp_video_path = f'{temp_dir}/{video_name}.mp4'
+        cmd = f'ffmpeg -threads 8 -loglevel error -y -i {video_path} -filter:v fps={fps} -b:v 8000k -c:v mpeg4 -g {group} -f rawvideo {temp_video_path}'
+        ret = subprocess.run(args=cmd, shell=True, timeout=2000)
+        if ret.returncode != 0:
+            raise RuntimeError(f"Dump video to {fps} ERROR")
+    else:
+        temp_video_path = video_path
+
+    # The motion vector mean and std
+    mean = np.array([[0.0, 0.0]], dtype=np.float64)
+    std =  np.array([[0.0993703, 0.1130276]], dtype=np.float64)
+
+    # Rescale for the input of motion tokenizer
+    if rescale:
+        std = std / 10.0
+
+    # Load motion vector from raw video
+    cap = VideoCap()
+    ret = cap.open(temp_video_path)
+    frames, motions, frame_types = [], [], []
+    frames_with_arrows = []
+
+    while True:
+        ret, frame, motion_vectors, frame_type, timestamp = cap.read()
+
+        frame_with_motion = draw_motion_vectors(np.copy(frame), motion_vectors)
+
+        if not ret:
+            break
+
+        frames_with_arrows.append(frame_with_motion[:, :, ::-1] if frame_with_motion is not None else frame_with_motion)
+        h, w = frame.shape[:2]
+        mv = np.ones((h,w,2)) * -10000   # The
+        position = motion_vectors[:,5:7].clip((0,0),(w-1,h-1))
+        mvs = motion_vectors[:,0:1] * motion_vectors[:,7:9] / motion_vectors[:, 9:]
+
+        # Normalize the motion vector with resoultion
+        mvs[:, 0] = mvs[:, 0] / w
+        mvs[:, 1] = mvs[:, 1] / h
+        # Normalize the motion vector
+        mvs = (mvs - mean) / std
+
+        mv[position[:,1],position[:,0]] = mvs
+        motions.append(mv)
+        frame_types.append(frame_type)
+        frames.append(frame[:, :, ::-1])
+
+    return frames_with_arrows, frames, motions, frame_types
+
 
 class MotionVectorProcessor:
 
@@ -101,7 +165,7 @@ class MotionVectorProcessor:
 
 class LaVITEvalVideoProcessor:
     # For custom video understanding
-    def __init__(self, image_size=224, num_frames=24, fps=6, max_clips=8, temp_dir=None):
+    def __init__(self, image_size=224, num_frames=24, fps=6, max_clips=8, visualize_frame_selection=False, temp_dir=None):
         # fps=6
         self.max_frames = num_frames
         self.normalize_resolution = True
@@ -110,6 +174,7 @@ class LaVITEvalVideoProcessor:
 
         self.motion_transform = MotionVectorProcessor(width=36, height=20)
         self.image_transform = LaVITImageProcessor(image_size=image_size, is_train=False)
+        self.visualize_frame_selection = visualize_frame_selection
 
         self.temp_dir = './tmp'
         # Used for temporally save the reencoded video
@@ -124,11 +189,50 @@ class LaVITEvalVideoProcessor:
         if temp_dir is None:
             temp_dir = self.temp_dir
 
-        frames, motions, frame_types = extract_motions(video_path, raw_file, temp_dir, fps=self.fps, rescale=True)
+        if (self.visualize_frame_selection):
+            frames_with_arrows, frames, motions, frame_types = extract_motions_for_visualization(video_path, raw_file, temp_dir, fps=self.fps, rescale=True)
+        else:
+            frames, motions, frame_types = extract_motions(video_path, raw_file, temp_dir, fps=self.fps, rescale=True)
 
         # Next, sample the video clips from a long video
         total_frames = len(frame_types)
+            
         start_indexs = np.where(np.array(frame_types)=='I')[0]
+
+        #start_indexs = np.array([0, 18, 36, 42, 48, 66, 72, 84, 90, 96, 102, 120, 150, 156]) # try to do by eye
+
+
+        if (self.visualize_frame_selection):
+            non_key_indexs = np.where(np.array(frame_types)=='P')[0]
+            print ("frame_types", frame_types)
+            print ("len(frames)", len(frames))
+            print ("len(motions)", len(motions))
+            print ("start_indexs", start_indexs)
+            print ("frame shape", frames[0].shape)
+            print ("motion shape", motions[0].shape)
+
+            fig, axes = plt.subplots(ncols=len(start_indexs), nrows=2, figsize=(30, 8))
+
+            #frames_for_show = np.concatenate((start_indexs[0:6], non_key_indexs[28:30]))
+            #print ("frames_for_show", frames_for_show)
+
+            for c in range(len(start_indexs)):
+                sc = start_indexs[c]
+                axes[0, c].imshow(frames[sc])
+                axes[0, c].set_title(frame_types[sc])
+                axes[1, c].imshow(frames_with_arrows[sc])
+                axes[1, c].set_title(frame_types[sc])
+                #axes[2, c].imshow(motions[sc][:, :, 0])
+                #axes[2, c].title(frame_types[sc])
+                #axes[3, c].imshow(motions[sc][:, :, 1])
+                #axes[3, c].title(frame_types[sc])
+
+                axes[0, c].axis('off')
+                #axes[1, c].axis('off')
+                #axes[2, c].axis('off')
+                #axes[3, c].axis('off')
+            
+            plt.show()
         
         if len(start_indexs) == 0:
             raise ValueError(f"Empty Start indexs: {video_path}")
@@ -159,11 +263,28 @@ class LaVITEvalVideoProcessor:
                 selected_index = start_indexs[selected_index]
             else:
                 selected_index = start_indexs
-
+        #selected_index = start_indexs
         assert len(selected_index) <= self.max_clips
         key_frame_indices = list(selected_index)
         video_motion_sequences = []
         video_frame_sequences = []
+
+        print ("key_frame_indices", key_frame_indices)
+        if (self.visualize_frame_selection):
+            fig, axes = plt.subplots(ncols=len(key_frame_indices), nrows=2, figsize=(30, 8))
+
+            #frames_for_show = np.concatenate((start_indexs[0:6], non_key_indexs[28:30]))
+            #print ("frames_for_show", frames_for_show)
+
+            for c in range(len(key_frame_indices)):
+                sc = key_frame_indices[c]
+                axes[0, c].imshow(frames[sc])
+                axes[0, c].set_title(frame_types[sc])
+                axes[1, c].imshow(frames_with_arrows[sc])
+                axes[1, c].set_title(frame_types[sc])
+                axes[0, c].axis('off')
+                axes[1, c].axis('off')
+            plt.show()
 
         for fid in key_frame_indices:
             video_frame_sequences.append(Image.fromarray(frames[fid]).convert("RGB"))
@@ -181,7 +302,7 @@ class LaVITEvalVideoProcessor:
     def __call__(self, video_path, raw_file=True, use_cache=False, temp_dir=None):
         try:
             video_frame_sequences, video_motion_sequences = self.sample_video_clips(video_path, raw_file, temp_dir)
-            #print ("done!")
+            print ("done!")
             video_motion_vectors = []
             for clip_motions in video_motion_sequences:
                 clip_motion_vectors = self.motion_transform(clip_motions)

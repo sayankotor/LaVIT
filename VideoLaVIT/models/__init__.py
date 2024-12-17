@@ -17,6 +17,7 @@ def build_model(
     local_files_only=False,
     model_sub_dir='language_model',
     max_video_clips=16,
+    visualize_frame_selection = False
 ):
     """
     model_path (str): The local directory for the saving the model weight
@@ -32,10 +33,10 @@ def build_model(
 
     if understanding:
         video_lavit = VideoLaVITUnderstandingRunner(model_path=model_path, model_dtype=model_dtype, device_id=device_id, 
-                            use_xformers=use_xformers, max_clips=max_video_clips)
+                            use_xformers=use_xformers, max_clips=max_video_clips, visualize_frame_selection=visualize_frame_selection)
     else:
         video_lavit = VideoLaVITforGeneration(model_path=model_path, model_dtype=model_dtype, device_id=device_id, 
-                                use_xformers=use_xformers, model_sub_dir=model_sub_dir,)
+                                use_xformers=use_xformers, model_sub_dir=model_sub_dir)
         # Convert the model parameters to the defined precision
         if model_dtype == 'bf16':
             convert_weights_to_bf16(video_lavit)

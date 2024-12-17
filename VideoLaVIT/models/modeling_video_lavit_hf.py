@@ -155,12 +155,10 @@ class VideoLaVITLlamaForCausalLM(LlamaForCausalLM):
         # [([visual_inputs, motion_inputs]), 'video')]
         #print ("\n\n")
         #print ("before prepare_inputs_labels_for_multimodal")
-        #print ("len(input_ids)", len(input_ids[0]))
-        #print ("input_ids", input_ids)
+        #print ("input_ids shape", input_ids.shape)
+        #print ("attention_mask shape", attention_mask.shape)
         #print ("\n\n")
-        #print ("position_ids", position_ids)
-        #print ("images", len(images), len(images[0]), len(images[0][0]), images[0][0][0].shape, images[0][0][1].shape)
-        #print ("images", images[0][1])
+        #print ("position_ids shape", position_ids.shape)
         if images is None or input_ids.shape[1] == 1:
             if past_key_values is not None and images is not None and input_ids.shape[1] == 1:
                 target_shape = past_key_values[-1][-1].shape[-2] + 1
@@ -341,11 +339,14 @@ class VideoLaVITLlamaForCausalLM(LlamaForCausalLM):
         )
         #print ("after prepare_inputs_labels_for_multimodal")
         #if (input_ids is not None):
-            #print ("len(input_ids)", len(input_ids))
-            #print ("len(position_ids)", len(position_ids))
+            #print ("input_ids shape", input_ids.shape)
+            #print ("attention_mask shape", attention_mask.shape)
+            #print ("\n\n")
+            #print ("position_ids shape", position_ids.shape)
         #else:
             #print ("input_ids", input_ids)
             #print ("position_ids", position_ids)
+            #print ("attention_mask shape", attention_mask.shape)
         #if (inputs_embeds is not None):
             #print ("inputs_embeds.shape", inputs_embeds[0].shape)
         outputs = super().forward(
