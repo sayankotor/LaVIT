@@ -10,4 +10,9 @@
 
 
 ### VideoChatGPT test (descriptive, generative) 
+|Model Name| correctness | temporal | consistency | Detail Orientation | Contextual Understanding
+|:---------|:--------|:---------|:--------|:---------|:--------
+|LaVIT (llama3)| 3.01 | 2.45 | 2.92 | 3.41 |3.48
+|VideoChatGPT Paper | 2.40 | 1.98 | 2.37 | 2.52 |2.62
+
 
